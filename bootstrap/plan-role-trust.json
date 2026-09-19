@@ -14,8 +14,8 @@
         },
         "StringLike": {
           "token.actions.githubusercontent.com:sub": [
-            "repo:__REPO_SLUG__:pull_request",
-            "repo:__REPO_SLUG__:ref:refs/heads/*"
+            "__TOKEN_SUBJECT__:pull_request",
+            "__TOKEN_SUBJECT__:ref:refs/heads/*"
           ]
         }
       }

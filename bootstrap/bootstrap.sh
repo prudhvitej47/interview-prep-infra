@@ -46,6 +46,19 @@ STATE_BUCKET="interview-prep-tfstate-${ACCOUNT_ID}"
 OIDC_ARN="arn:aws:iam::${ACCOUNT_ID}:oidc-provider/${OIDC_HOST}"
 REPO_SLUG="${GITHUB_OWNER}/${INFRA_REPO}"
 
+# GitHub puts numeric ids in the OIDC token subject of repos created after 15 July 2026:
+#   repo:<owner>@<owner-id>/<repo>@<repo-id>:ref:refs/heads/main
+# The ids never change, so a renamed or re-created repo cannot reuse these roles.
+# They are read from GitHub's public API; for a private repo pass GITHUB_OWNER_ID and GITHUB_REPO_ID.
+if [[ -z "${GITHUB_OWNER_ID:-}" || -z "${GITHUB_REPO_ID:-}" ]]; then
+  REPO_JSON="$(curl -fsS "https://api.github.com/repos/${REPO_SLUG}")" \
+    || die "could not read ${REPO_SLUG} from api.github.com (private repo? set GITHUB_OWNER_ID and GITHUB_REPO_ID)"
+  GITHUB_OWNER_ID="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["owner"]["id"])' <<<"${REPO_JSON}")"
+  GITHUB_REPO_ID="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])' <<<"${REPO_JSON}")"
+fi
+[[ "${GITHUB_OWNER_ID}" =~ ^[0-9]+$ && "${GITHUB_REPO_ID}" =~ ^[0-9]+$ ]] || die "GitHub owner and repo ids must be numbers"
+TOKEN_SUBJECT="repo:${GITHUB_OWNER}@${GITHUB_OWNER_ID}/${INFRA_REPO}@${GITHUB_REPO_ID}"
+
 cat <<EOF
 
 About to bootstrap:
@@ -53,6 +66,7 @@ About to bootstrap:
   Signed in as    : ${CALLER_ARN}
   Region          : ${REGION}
   GitHub repo     : ${REPO_SLUG}
+  Token subject   : ${TOKEN_SUBJECT}:...
   State bucket    : ${STATE_BUCKET}
   Plan role       : ${PLAN_ROLE}   (any branch or PR of ${REPO_SLUG}, read-only)
   Apply role      : ${APPLY_ROLE}  (only the main branch of ${REPO_SLUG})
@@ -69,6 +83,7 @@ render() {
   sed -e "s|__ACCOUNT_ID__|${ACCOUNT_ID}|g" \
       -e "s|__REGION__|${REGION}|g" \
       -e "s|__REPO_SLUG__|${REPO_SLUG}|g" \
+      -e "s|__TOKEN_SUBJECT__|${TOKEN_SUBJECT}|g" \
       -e "s|__STATE_BUCKET__|${STATE_BUCKET}|g" \
       "${SCRIPT_DIR}/${template}" > "${WORK_DIR}/${out}"
 }
