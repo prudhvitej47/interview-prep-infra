@@ -1,0 +1,108 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LightsailMumbaiOnly",
+      "Effect": "Allow",
+      "Action": [
+        "lightsail:GetRegions",
+        "lightsail:GetBundles",
+        "lightsail:GetBlueprints",
+        "lightsail:CreateInstances",
+        "lightsail:CreateInstancesFromSnapshot",
+        "lightsail:GetInstance",
+        "lightsail:GetInstances",
+        "lightsail:GetInstanceState",
+        "lightsail:StartInstance",
+        "lightsail:StopInstance",
+        "lightsail:RebootInstance",
+        "lightsail:DeleteInstance",
+        "lightsail:SetIpAddressType",
+        "lightsail:PutInstancePublicPorts",
+        "lightsail:OpenInstancePublicPorts",
+        "lightsail:CloseInstancePublicPorts",
+        "lightsail:GetInstancePortStates",
+        "lightsail:CreateDisk",
+        "lightsail:CreateDiskFromSnapshot",
+        "lightsail:GetDisk",
+        "lightsail:GetDisks",
+        "lightsail:AttachDisk",
+        "lightsail:DetachDisk",
+        "lightsail:DeleteDisk",
+        "lightsail:CreateInstanceSnapshot",
+        "lightsail:GetInstanceSnapshot",
+        "lightsail:GetInstanceSnapshots",
+        "lightsail:DeleteInstanceSnapshot",
+        "lightsail:CreateDiskSnapshot",
+        "lightsail:GetDiskSnapshot",
+        "lightsail:GetDiskSnapshots",
+        "lightsail:DeleteDiskSnapshot",
+        "lightsail:EnableAddOn",
+        "lightsail:DisableAddOn",
+        "lightsail:GetAutoSnapshots",
+        "lightsail:DeleteAutoSnapshot",
+        "lightsail:ImportKeyPair",
+        "lightsail:GetKeyPair",
+        "lightsail:GetKeyPairs",
+        "lightsail:DeleteKeyPair",
+        "lightsail:TagResource",
+        "lightsail:UntagResource",
+        "lightsail:GetOperation",
+        "lightsail:GetOperations",
+        "lightsail:GetOperationsForResource"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:RequestedRegion": "__REGION__" } }
+    },
+    {
+      "Sid": "StateBucketList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::__STATE_BUCKET__"
+    },
+    {
+      "Sid": "StateAndLockFiles",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::__STATE_BUCKET__/infra/*"
+    },
+    {
+      "Sid": "BackupBucketOnly",
+      "Effect": "Allow",
+      "Action": "s3:*",
+      "Resource": [
+        "arn:aws:s3:::interview-prep-backups-__ACCOUNT_ID__",
+        "arn:aws:s3:::interview-prep-backups-__ACCOUNT_ID__/*"
+      ]
+    },
+    {
+      "Sid": "BackupWriterUserOnly",
+      "Effect": "Allow",
+      "Action": [
+        "iam:CreateUser",
+        "iam:GetUser",
+        "iam:DeleteUser",
+        "iam:TagUser",
+        "iam:UntagUser",
+        "iam:ListUserTags",
+        "iam:PutUserPolicy",
+        "iam:GetUserPolicy",
+        "iam:DeleteUserPolicy",
+        "iam:ListUserPolicies",
+        "iam:ListAttachedUserPolicies",
+        "iam:ListGroupsForUser",
+        "iam:CreateAccessKey",
+        "iam:ListAccessKeys",
+        "iam:UpdateAccessKey",
+        "iam:DeleteAccessKey"
+      ],
+      "Resource": "arn:aws:iam::__ACCOUNT_ID__:user/interview-prep/*"
+    },
+    {
+      "Sid": "WhoAmI",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    }
+  ]
+}
