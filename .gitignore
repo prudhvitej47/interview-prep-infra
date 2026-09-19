@@ -1,0 +1,28 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+plan.txt
+plan.log
+comment.md
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+*.auto.tfvars
+*.tfvars
+
+# Secrets never live in this repo
+.env
+*.pem
+*.key
+.secrets/
+
+# OS / editors
+.DS_Store
+.idea/
+.vscode/
