@@ -1,0 +1,122 @@
+#!/bin/bash
+# First-boot setup for the interview-prep VM (Ubuntu 24.04 on Lightsail).
+# Rendered by Terraform (templates/first-boot.sh.tftpl). Runs once, as root.
+# Log: /var/log/interview-prep-first-boot.log
+set -euo pipefail
+exec >>/var/log/interview-prep-first-boot.log 2>&1
+echo "=== first boot started $(date -Is)"
+
+MARKER=/etc/interview-prep/first-boot.done
+if [ -f "$MARKER" ]; then
+  echo "already completed; exiting"
+  exit 0
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+mkdir -p /etc/interview-prep /opt/interview-prep
+chmod 700 /etc/interview-prep
+
+# --- 1. Base packages and automatic security updates -------------------------
+apt-get update -y
+apt-get install -y ca-certificates curl gnupg jq unattended-upgrades
+dpkg-reconfigure -f noninteractive unattended-upgrades
+
+# --- 2. Swap: 2 GB of RAM is tight for JVM + Postgres + builds ---------------
+if [ ! -f /swapfile ]; then
+  fallocate -l 2G /swapfile
+  chmod 600 /swapfile
+  mkswap /swapfile
+  swapon /swapfile
+  echo '/swapfile none swap sw 0 0' >> /etc/fstab
+fi
+
+# --- 3. Docker Engine + Compose plugin from Docker's apt repository -----------
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+ARCH="$(dpkg --print-architecture)"
+# shellcheck disable=SC1091
+CODENAME="$(. /etc/os-release && echo "$VERSION_CODENAME")"
+echo "deb [arch=$ARCH signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $CODENAME stable" \
+  > /etc/apt/sources.list.d/docker.list
+apt-get update -y
+apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+systemctl enable --now docker
+
+# --- 4. Tailscale: the only way in ---------------------------------------------
+curl -fsSL https://tailscale.com/install.sh | sh
+TS_KEY='${tailscale_auth_key}'
+if [ -n "$TS_KEY" ]; then
+  tailscale up --auth-key="$TS_KEY" --ssh --hostname='${hostname}'
+  echo "tailscale joined as ${hostname}"
+else
+  echo "WARNING: no Tailscale auth key; run 'tailscale up --ssh' from the Lightsail browser console"
+fi
+unset TS_KEY
+
+# --- 5. PostgreSQL data disk ----------------------------------------------------
+# Terraform attaches the disk after the VM is created, so wait for it (up to 20 min).
+ROOT_DISK="$(lsblk -no PKNAME "$(findmnt -no SOURCE /)" | head -n1)"
+DATA_DEV=""
+for _ in $(seq 1 120); do
+  DATA_DEV="$(lsblk -dpno NAME,TYPE | awk '$2 == "disk" {print $1}' | grep -v "/dev/$ROOT_DISK\$" | head -n1 || true)"
+  [ -n "$DATA_DEV" ] && break
+  sleep 10
+done
+
+if [ -z "$DATA_DEV" ]; then
+  echo "ERROR: data disk never appeared; Postgres storage NOT mounted"
+else
+  echo "data disk: $DATA_DEV"
+  # Format only a blank disk. A re-attached disk keeps its data.
+  if ! blkid "$DATA_DEV" >/dev/null 2>&1; then
+    mkfs.ext4 -L ipdata "$DATA_DEV"
+    echo "formatted $DATA_DEV"
+  fi
+  mkdir -p /data
+  if ! grep -q 'LABEL=ipdata' /etc/fstab; then
+    echo 'LABEL=ipdata /data ext4 defaults,nofail,x-systemd.device-timeout=60s 0 2' >> /etc/fstab
+  fi
+  mount -a
+  # The official postgres image runs as uid/gid 999.
+  mkdir -p /data/postgres
+  chown 999:999 /data/postgres
+  chmod 700 /data/postgres
+fi
+
+# --- 6. Backup credentials (S3 only, scoped to one bucket) --------------------
+umask 077
+cat > /etc/interview-prep/backup.env <<'ENVEOF'
+AWS_ACCESS_KEY_ID=${backup_access_key_id}
+AWS_SECRET_ACCESS_KEY=${backup_secret_key}
+AWS_REGION=${region}
+BACKUP_BUCKET=${backup_bucket}
+WALG_S3_PREFIX=s3://${backup_bucket}/wal-g
+ENVEOF
+chmod 600 /etc/interview-prep/backup.env
+umask 022
+
+# --- 7. Containers must not read instance metadata (it exposes user data) ----
+cat > /etc/systemd/system/block-metadata-from-containers.service <<'UNITEOF'
+[Unit]
+Description=Block the instance metadata endpoint for Docker containers
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'iptables -C DOCKER-USER -d 169.254.169.254/32 -j REJECT 2>/dev/null || iptables -I DOCKER-USER -d 169.254.169.254/32 -j REJECT'
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+systemctl daemon-reload
+systemctl enable --now block-metadata-from-containers.service
+
+# --- 8. Scrub copies of the launch script (they contain the secrets above) ---
+rm -f /root/interview-prep-first-boot.sh
+find /var/lib/cloud -type f \( -name 'user-data*' -o -path '*/scripts/part-*' \) -exec shred -u {} + || true
+
+touch "$MARKER"
+echo "=== first boot finished $(date -Is)"

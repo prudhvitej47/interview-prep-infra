@@ -1,0 +1,70 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "LightsailReadOnlyMumbai",
+      "Effect": "Allow",
+      "Action": [
+        "lightsail:GetRegions",
+        "lightsail:GetBundles",
+        "lightsail:GetBlueprints",
+        "lightsail:GetInstance",
+        "lightsail:GetInstances",
+        "lightsail:GetInstanceState",
+        "lightsail:GetInstancePortStates",
+        "lightsail:GetInstanceSnapshot",
+        "lightsail:GetInstanceSnapshots",
+        "lightsail:GetDisk",
+        "lightsail:GetDisks",
+        "lightsail:GetDiskSnapshot",
+        "lightsail:GetDiskSnapshots",
+        "lightsail:GetAutoSnapshots",
+        "lightsail:GetKeyPair",
+        "lightsail:GetKeyPairs",
+        "lightsail:GetOperation",
+        "lightsail:GetOperations",
+        "lightsail:GetOperationsForResource"
+      ],
+      "Resource": "*",
+      "Condition": { "StringEquals": { "aws:RequestedRegion": "__REGION__" } }
+    },
+    {
+      "Sid": "StateBucketList",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::__STATE_BUCKET__"
+    },
+    {
+      "Sid": "StateFileRead",
+      "Effect": "Allow",
+      "Action": "s3:GetObject",
+      "Resource": "arn:aws:s3:::__STATE_BUCKET__/infra/*"
+    },
+    {
+      "Sid": "BackupBucketConfigReadNoObjects",
+      "Effect": "Allow",
+      "Action": ["s3:Get*", "s3:ListBucket"],
+      "Resource": "arn:aws:s3:::interview-prep-backups-__ACCOUNT_ID__"
+    },
+    {
+      "Sid": "BackupWriterUserRead",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetUser",
+        "iam:ListUserTags",
+        "iam:GetUserPolicy",
+        "iam:ListUserPolicies",
+        "iam:ListAttachedUserPolicies",
+        "iam:ListGroupsForUser",
+        "iam:ListAccessKeys"
+      ],
+      "Resource": "arn:aws:iam::__ACCOUNT_ID__:user/interview-prep/*"
+    },
+    {
+      "Sid": "WhoAmI",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    }
+  ]
+}

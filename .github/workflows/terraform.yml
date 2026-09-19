@@ -1,0 +1,161 @@
+name: terraform
+
+# Pull requests -> read-only plan, posted as a PR comment.
+# Push to main  -> read-only plan (drift check) in the job summary.
+# Manual run on main with confirm=apply -> plan + apply with the apply role.
+# AWS access uses GitHub OIDC; no AWS keys are stored in this repository.
+
+on:
+  pull_request:
+    paths:
+      - "terraform/**"
+      - "bootstrap/**"
+      - ".github/workflows/terraform.yml"
+  push:
+    branches: [main]
+    paths:
+      - "terraform/**"
+      - ".github/workflows/terraform.yml"
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "apply" to run terraform apply (main branch only)'
+        required: true
+        default: "no"
+      replace_vm:
+        description: "Rebuild the VM (data disk is kept and re-attached)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  TF_IN_AUTOMATION: "true"
+  TF_INPUT: "false"
+  TF_VERSION: "~1.16.0"
+  AWS_REGION: ${{ vars.AWS_REGION || 'ap-south-1' }}
+
+jobs:
+  checks:
+    name: fmt / validate / shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform fmt
+        run: terraform -chdir=terraform fmt -check -recursive -diff
+
+      - name: terraform validate
+        run: |
+          terraform -chdir=terraform init -backend=false
+          terraform -chdir=terraform validate
+
+      - name: shellcheck bootstrap
+        run: shellcheck bootstrap/bootstrap.sh
+
+      - name: policy templates are valid JSON
+        run: for f in bootstrap/*.json; do python3 -m json.tool "$f" > /dev/null; done
+
+  plan:
+    name: plan (read-only role)
+    needs: checks
+    if: github.event_name != 'workflow_dispatch' && vars.AWS_PLAN_ROLE_ARN != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_PLAN_ROLE_ARN }}
+          role-session-name: gha-plan-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform init
+        run: terraform -chdir=terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: terraform plan
+        env:
+          TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        run: |
+          set -o pipefail
+          terraform -chdir=terraform plan -lock=false -no-color -out=tfplan | tee plan.log
+          terraform -chdir=terraform show -no-color tfplan > plan.txt
+
+      - name: summarize plan
+        if: always()
+        run: |
+          {
+            echo "### terraform plan"
+            echo
+            echo '```'
+            if [ -f plan.txt ]; then head -c 60000 plan.txt; else tail -c 60000 plan.log 2>/dev/null || echo "plan failed before output"; fi
+            echo '```'
+          } > comment.md
+          cat comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: comment on pull request
+        if: always() && github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh pr comment "${{ github.event.pull_request.number }}" --body-file comment.md --edit-last --create-if-none
+
+  apply:
+    name: apply (main only, manual)
+    needs: checks
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirm == 'apply'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: ${{ vars.AWS_APPLY_ROLE_ARN }}
+          role-session-name: gha-apply-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - uses: hashicorp/setup-terraform@v4
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+          terraform_wrapper: false
+
+      - name: terraform init
+        run: terraform -chdir=terraform init -backend-config="bucket=${{ vars.TF_STATE_BUCKET }}"
+
+      - name: terraform plan
+        env:
+          TF_VAR_tailscale_auth_key: ${{ secrets.TAILSCALE_AUTH_KEY }}
+        run: |
+          REPLACE=""
+          if [ "${{ inputs.replace_vm }}" = "true" ]; then REPLACE="-replace=aws_lightsail_instance.app"; fi
+          terraform -chdir=terraform plan -no-color $REPLACE -out=tfplan
+          {
+            echo "### terraform plan (applied below)"
+            echo '```'
+            terraform -chdir=terraform show -no-color tfplan | head -c 60000
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: terraform apply
+        run: terraform -chdir=terraform apply -no-color tfplan
