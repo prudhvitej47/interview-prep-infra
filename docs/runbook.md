@@ -25,6 +25,31 @@
    docker version
    ```
 
+## Approving an apply
+
+`apply` runs only when someone starts it by hand on `main` with `confirm = apply`, and then waits
+for a required reviewer to approve it in GitHub. Two things have to agree for that to work:
+
+- the `apply` **environment** in this repository (Settings -> Environments), with a required
+  reviewer and `main` as its only deployment branch;
+- the apply role's trust policy, which accepts the sign-in subject GitHub puts in the token.
+
+A job that names an environment gets a token ending `:environment:apply` instead of
+`:ref:refs/heads/main`, so `bootstrap/apply-role-trust.json` accepts **both** forms. That is what
+lets the environment be switched on without locking `apply` out, in this order:
+
+1. Merge the trust change and re-run `bootstrap/bootstrap.sh` in CloudShell. Nothing changes yet:
+   `apply` still signs in as the `main` branch.
+2. Create the `apply` environment with yourself as the required reviewer.
+3. Merge the workflow change that adds `environment: apply` to the apply job. The token now names
+   the environment, which step 1 already trusted.
+4. Run the workflow with `confirm = apply`, approve the waiting deployment, and check that it
+   applies with no changes.
+
+Only once step 4 passes is it safe to narrow the trust policy to the environment subject alone and
+re-run the bootstrap again. If an apply ever fails at the AWS sign-in step, compare the `sub` claim
+in the run's log with the two values in `apply-role-trust.json`.
+
 ## Replace the VM on purpose
 
 The launch script only runs at first boot and Terraform ignores later changes to it. To

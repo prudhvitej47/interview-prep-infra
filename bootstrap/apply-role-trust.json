@@ -2,7 +2,7 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "GitHubActionsMainBranchOnly",
+      "Sid": "GitHubActionsMainBranchOrApplyEnvironment",
       "Effect": "Allow",
       "Principal": {
         "Federated": "arn:aws:iam::__ACCOUNT_ID__:oidc-provider/token.actions.githubusercontent.com"
@@ -11,7 +11,10 @@
       "Condition": {
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
-          "token.actions.githubusercontent.com:sub": "__TOKEN_SUBJECT__:ref:refs/heads/main"
+          "token.actions.githubusercontent.com:sub": [
+            "__TOKEN_SUBJECT__:ref:refs/heads/main",
+            "__TOKEN_SUBJECT__:environment:apply"
+          ]
         }
       }
     }
