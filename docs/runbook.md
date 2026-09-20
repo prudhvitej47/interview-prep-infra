@@ -82,11 +82,30 @@ rebuild the VM (new OS image, rotated backup key, fresh Tailscale key):
 
 1. Put a fresh Tailscale auth key in the `TAILSCALE_AUTH_KEY` secret.
 2. Actions -> *terraform* -> *Run workflow* on `main` with `confirm` = `apply` (approve it when
-   GitHub asks) and
-   `replace_vm` ticked.
+   GitHub asks) and `replace_vm` ticked.
+3. **Set the new VM up to run the application**, which the first-boot script does not do. From a
+   Mac on the tailnet, in a checkout of `interview-prep-app`:
+
+   ```bash
+   ECR_REGISTRY=<account-id>.dkr.ecr.ap-south-1.amazonaws.com
+   tailscale ssh ubuntu@interview-prep "sudo ECR_REGISTRY=$ECR_REGISTRY bash -s" < deploy/vm-setup.sh
+   ```
+
+   See `deploy/README.md` in that repository. Until this is run, the new VM is on the tailnet but
+   serves nothing.
 
 The data disk is detached from the old VM and re-attached to the new one; the first-boot
-script formats it only if it is blank.
+script formats it only if it is blank, so the database survives a replacement.
+
+Step 1 is the one that bites: the original auth key was single-use and is spent. Without a fresh
+key the new VM never joins the tailnet, and since nothing else can reach it, there is no way in
+except the Lightsail browser console. Put the key in the secret before starting the apply, not
+after.
+
+Note that a **reboot** needs none of this. `user_data` runs once when an instance is created, not
+on every boot, and the first-boot script guards itself with `/etc/interview-prep/first-boot.done`
+besides. Everything both scripts do is persistent, and systemd restarts the application by
+itself.
 
 ## Recovery
 
