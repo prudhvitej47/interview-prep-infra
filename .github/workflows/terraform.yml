@@ -2,7 +2,8 @@ name: terraform
 
 # Pull requests -> read-only plan, posted as a PR comment.
 # Push to main  -> read-only plan (drift check) in the job summary.
-# Manual run on main with confirm=apply -> plan + apply with the apply role.
+# Manual run on main with confirm=apply -> plan + apply with the apply role,
+#               after the apply environment's required reviewer approves it.
 # AWS access uses GitHub OIDC; no AWS keys are stored in this repository.
 
 on:
@@ -15,6 +16,7 @@ on:
     branches: [main]
     paths:
       - "terraform/**"
+      - "bootstrap/**"
       - ".github/workflows/terraform.yml"
   workflow_dispatch:
     inputs:
@@ -119,10 +121,14 @@ jobs:
         run: gh pr comment "${{ github.event.pull_request.number }}" --body-file comment.md --edit-last --create-if-none
 
   apply:
-    name: apply (main only, manual)
+    name: apply (main only, manual, approved)
     needs: checks
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.confirm == 'apply'
     runs-on: ubuntu-latest
+    # Waits for the environment's required reviewer before anything touches AWS.
+    # A job with an environment signs in to AWS as ":environment:apply" rather than
+    # ":ref:refs/heads/main"; bootstrap/apply-role-trust.json accepts both.
+    environment: apply
     permissions:
       contents: read
       id-token: write

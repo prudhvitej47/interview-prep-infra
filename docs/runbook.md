@@ -15,7 +15,8 @@
    4. Save it as the repository **secret** `TAILSCALE_AUTH_KEY`.
    5. Invite the second learner with an invite link; they can use any sign-in provider.
 4. **Merge** the infra pull request once the plan comment looks right.
-5. **Apply** — Actions -> *terraform* -> *Run workflow* on `main`, `confirm` = `apply`.
+5. **Apply** — Actions -> *terraform* -> *Run workflow* on `main`, `confirm` = `apply`,
+   then approve the waiting deployment when GitHub asks. See *Approving an apply* below.
 6. **Verify** (5–15 minutes after apply):
    ```bash
    tailscale status | grep interview-prep
@@ -35,20 +36,16 @@ for a required reviewer to approve it in GitHub. Two things have to agree for th
 - the apply role's trust policy, which accepts the sign-in subject GitHub puts in the token.
 
 A job that names an environment gets a token ending `:environment:apply` instead of
-`:ref:refs/heads/main`, so `bootstrap/apply-role-trust.json` accepts **both** forms. That is what
-lets the environment be switched on without locking `apply` out, in this order:
+`:ref:refs/heads/main`, so `bootstrap/apply-role-trust.json` accepts **both** forms. The apply job
+names the environment, so it signs in with the second one.
 
-1. Merge the trust change and re-run `bootstrap/bootstrap.sh` in CloudShell. Nothing changes yet:
-   `apply` still signs in as the `main` branch.
-2. Create the `apply` environment with yourself as the required reviewer.
-3. Merge the workflow change that adds `environment: apply` to the apply job. The token now names
-   the environment, which step 1 already trusted.
-4. Run the workflow with `confirm = apply`, approve the waiting deployment, and check that it
-   applies with no changes.
+The branch form is still accepted as a fallback while the environment path settles. Once it has
+been exercised a few times, dropping it from the trust policy and re-running
+`bootstrap/bootstrap.sh` narrows the role to approved runs only.
 
-Only once step 4 passes is it safe to narrow the trust policy to the environment subject alone and
-re-run the bootstrap again. If an apply ever fails at the AWS sign-in step, compare the `sub` claim
-in the run's log with the two values in `apply-role-trust.json`.
+If an apply ever fails at the AWS sign-in step, compare the `sub` claim in the run's log with the
+two values in `apply-role-trust.json`. If it never reaches AWS at all and shows as *waiting*, it is
+sitting on the environment's approval, not broken.
 
 ## Replace the VM on purpose
 
@@ -56,7 +53,8 @@ The launch script only runs at first boot and Terraform ignores later changes to
 rebuild the VM (new OS image, rotated backup key, fresh Tailscale key):
 
 1. Put a fresh Tailscale auth key in the `TAILSCALE_AUTH_KEY` secret.
-2. Actions -> *terraform* -> *Run workflow* on `main` with `confirm` = `apply` and
+2. Actions -> *terraform* -> *Run workflow* on `main` with `confirm` = `apply` (approve it when
+   GitHub asks) and
    `replace_vm` ticked.
 
 The data disk is detached from the old VM and re-attached to the new one; the first-boot
