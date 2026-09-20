@@ -17,9 +17,9 @@ variable "name" {
 }
 
 variable "bundle_id" {
-  description = "Lightsail plan. small_3_0 = 2 vCPU, 2 GB RAM, 60 GB SSD ($12/month). Confirm with the bootstrap script's bundle table."
+  description = "Lightsail plan. small_3_1 = 2 vCPU, 2 GB RAM, 60 GB SSD, IPv4 + IPv6 ($12/month). Confirm with the bootstrap script's bundle table."
   type        = string
-  default     = "small_3_0"
+  default     = "small_3_1"
 }
 
 variable "blueprint_id" {

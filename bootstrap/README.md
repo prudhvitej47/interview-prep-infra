@@ -22,7 +22,6 @@ and prints no secrets. `__PLACEHOLDERS__` in the JSON files are filled in at run
    ```bash
    git clone https://github.com/prudhvitej47/interview-prep-infra.git
    ```
-   (Private repo: when git asks, use your GitHub username and a token as the password.)
 4. Run:
    ```bash
    cd interview-prep-infra
@@ -30,10 +29,22 @@ and prints no secrets. `__PLACEHOLDERS__` in the JSON files are filled in at run
    ```
    Review the summary it prints and answer `y`.
 5. Check the **Lightsail plans** table at the end: the 2 GB plan at `12.0` USD should be
-   `small_3_0`. If the id differs, tell Claude so `terraform/variables.tf` can be updated.
+   `small_3_1` (the default in `terraform/variables.tf`). If the id differs, tell Claude.
 6. Copy the printed values into GitHub (repo -> Settings -> Secrets and variables -> Actions):
    - Variables: `AWS_REGION`, `TF_STATE_BUCKET`, `AWS_PLAN_ROLE_ARN`, `AWS_APPLY_ROLE_ARN`
    - Secret: `TAILSCALE_AUTH_KEY` (see `docs/runbook.md`)
+
+## Re-running
+
+The script is safe to run again: it keeps the bucket and provider and rewrites both roles'
+trust and permission policies. Re-run it after any change to the files in this folder.
+
+## Why the roles trust numeric ids
+
+GitHub tokens from repos created after 15 July 2026 identify the repo as
+`repo:<owner>@<owner-id>/<repo>@<repo-id>`, not `repo:<owner>/<repo>`. The script looks both ids
+up and writes that form into the trust policies. A trust policy with the old form fails with
+`Not authorized to perform sts:AssumeRoleWithWebIdentity`.
 
 ## Undo
 
