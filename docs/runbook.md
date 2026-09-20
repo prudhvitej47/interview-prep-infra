@@ -26,6 +26,34 @@
    docker version
    ```
 
+## Publishing images
+
+The app and content repositories publish to two ECR repositories in this account:
+
+| Repository | Holds |
+| --- | --- |
+| `interview-prep-app` | The application image. |
+| `interview-prep-content` | The validated curriculum bundle. |
+
+Each build pushes an immutable `<commit-sha>` tag and moves a `main` tag to it. The VM's update
+timer watches the `main` tag's digest, so nothing has to be told that a new build exists. Both
+repositories keep their last 10 images and expire the rest.
+
+Two identities are involved, and neither is a long-lived key in a workflow:
+
+- **Pushing** — GitHub Actions on `main` in the app and content repositories assumes
+  `interview-prep-ecr-push` through OIDC. It can push to these two repositories and do nothing else.
+- **Pulling** — the VM uses the `backup-writer` access key already in
+  `/etc/interview-prep/backup.env`, which now also carries read-only ECR permissions. Lightsail
+  instances cannot assume a role and `user_data` only runs at first boot, so reusing the key that is
+  already there avoids inventing a way to deliver a new secret to a running server. The VM resolves
+  it into a registry token with `amazon-ecr-credential-helper`; there is no `docker login` to keep
+  fresh and no AWS CLI on the box.
+
+If a push fails at the AWS sign-in step, compare the `sub` claim in the run's log with the two
+values in `bootstrap/push-role-trust.json`. The most likely cause is a repository having been
+re-created, which changes its numeric id — see `bootstrap/README.md`.
+
 ## Approving an apply
 
 `apply` runs only when someone starts it by hand on `main` with `confirm = apply`, and then waits

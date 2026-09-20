@@ -9,6 +9,7 @@ is Terraform.
 | OIDC identity provider | `token.actions.githubusercontent.com` | Lets GitHub Actions exchange its signed token for short-lived AWS credentials. Reused if it already exists. |
 | IAM role | `interview-prep-terraform-plan` | Read-only. Trusted by any branch or PR of `prudhvitej47/interview-prep-infra`. Policy: `plan-role-permissions.json`. |
 | IAM role | `interview-prep-terraform-apply` | Trusted only by the `main` branch of that repo, and by jobs running in its `apply` environment. Policy: `apply-role-permissions.json`. |
+| IAM role | `interview-prep-ecr-push` | Trusted only by the `main` branch of `interview-prep-app` and `interview-prep-content`. Pushes container images to the two ECR repositories and can do nothing else. Policy: `push-role-permissions.json`. |
 
 The script is idempotent (safe to re-run; it updates the policies), creates no access keys,
 and prints no secrets. `__PLACEHOLDERS__` in the JSON files are filled in at run time.
@@ -50,3 +51,24 @@ up and writes that form into the trust policies. A trust policy with the old for
 
 Delete the two roles (`aws iam delete-role-policy` then `aws iam delete-role`), the OIDC
 provider (only if nothing else uses it), and the state bucket (after `terraform destroy`).
+
+## Repository ids
+
+The roles trust numeric ids rather than names, so a renamed or re-created repository cannot inherit
+them. `bootstrap.sh` reads each id from GitHub's public API.
+
+`interview-prep-content` is private, so it cannot be read without a token. Its id is recorded in the
+script as `CONTENT_REPO_ID_DEFAULT` — an immutable, non-secret number — and the script says so when
+it falls back to it. Override any of them if needed:
+
+```bash
+GITHUB_OWNER_ID=... GITHUB_REPO_ID=... APP_REPO_ID=... CONTENT_REPO_ID=... bash bootstrap/bootstrap.sh
+```
+
+If the content repository is ever deleted and re-created, update that default. Until it is, the push
+role will refuse that repository's workflow with a `sts:AssumeRoleWithWebIdentity` error — which is
+the protection working, not a bug.
+
+`bootstrap/checks.sh` covers both risks without needing AWS: that the id lookup resolves correctly
+and fails loudly rather than quietly, and that every `__PLACEHOLDER__` in a policy template is one
+`render()` actually substitutes. CI runs it on every pull request.

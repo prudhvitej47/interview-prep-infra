@@ -63,7 +63,10 @@ jobs:
           terraform -chdir=terraform validate
 
       - name: shellcheck bootstrap
-        run: shellcheck bootstrap/bootstrap.sh
+        run: shellcheck bootstrap/bootstrap.sh bootstrap/checks.sh
+
+      - name: Check the bootstrap policies and repo-id lookup
+        run: bash bootstrap/checks.sh
 
       - name: policy templates are valid JSON
         run: for f in bootstrap/*.json; do python3 -m json.tool "$f" > /dev/null; done

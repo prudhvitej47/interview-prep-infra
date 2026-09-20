@@ -128,6 +128,27 @@ data "aws_iam_policy_document" "backup_writer" {
     actions   = ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"]
     resources = ["${aws_s3_bucket.backups.arn}/*"]
   }
+
+  # The VM pulls its images with this same key. Lightsail instances cannot assume a role, and
+  # user_data only runs at first boot, so a brand-new key would have no way onto the server that
+  # did not involve a human pasting a secret. This key is already there, written at first boot.
+  # The grant is read-only and limited to these two repositories.
+  statement {
+    sid       = "EcrLogin"
+    actions   = ["ecr:GetAuthorizationToken"]
+    resources = ["*"]
+  }
+
+  statement {
+    sid = "PullOwnImages"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:BatchGetImage",
+      "ecr:DescribeImages",
+      "ecr:GetDownloadUrlForLayer",
+    ]
+    resources = [for r in aws_ecr_repository.this : r.arn]
+  }
 }
 
 resource "aws_iam_user_policy" "backup_writer" {
