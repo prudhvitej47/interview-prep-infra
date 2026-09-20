@@ -15,6 +15,7 @@ override.tf.json
 *_override.tf.json
 *.auto.tfvars
 *.tfvars
+*.lock.hcl
 
 # Secrets never live in this repo
 .env
