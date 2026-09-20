@@ -41,10 +41,6 @@
         "lightsail:DisableAddOn",
         "lightsail:GetAutoSnapshots",
         "lightsail:DeleteAutoSnapshot",
-        "lightsail:ImportKeyPair",
-        "lightsail:GetKeyPair",
-        "lightsail:GetKeyPairs",
-        "lightsail:DeleteKeyPair",
         "lightsail:TagResource",
         "lightsail:UntagResource",
         "lightsail:GetOperation",
@@ -52,7 +48,11 @@
         "lightsail:GetOperationsForResource"
       ],
       "Resource": "*",
-      "Condition": { "StringEquals": { "aws:RequestedRegion": "__REGION__" } }
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "__REGION__"
+        }
+      }
     },
     {
       "Sid": "StateBucketList",
@@ -63,7 +63,11 @@
     {
       "Sid": "StateAndLockFiles",
       "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject",
+        "s3:DeleteObject"
+      ],
       "Resource": "arn:aws:s3:::__STATE_BUCKET__/infra/*"
     },
     {
@@ -97,6 +101,30 @@
         "iam:DeleteAccessKey"
       ],
       "Resource": "arn:aws:iam::__ACCOUNT_ID__:user/interview-prep/*"
+    },
+    {
+      "Sid": "EcrRepositoriesForThisProject",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:CreateRepository",
+        "ecr:DeleteRepository",
+        "ecr:DescribeRepositories",
+        "ecr:ListTagsForResource",
+        "ecr:TagResource",
+        "ecr:UntagResource",
+        "ecr:GetLifecyclePolicy",
+        "ecr:PutLifecyclePolicy",
+        "ecr:DeleteLifecyclePolicy",
+        "ecr:GetRepositoryPolicy",
+        "ecr:SetRepositoryPolicy",
+        "ecr:DeleteRepositoryPolicy",
+        "ecr:PutImageScanningConfiguration",
+        "ecr:PutImageTagMutability"
+      ],
+      "Resource": [
+        "arn:aws:ecr:__REGION__:__ACCOUNT_ID__:repository/interview-prep-app",
+        "arn:aws:ecr:__REGION__:__ACCOUNT_ID__:repository/interview-prep-content"
+      ]
     },
     {
       "Sid": "WhoAmI",

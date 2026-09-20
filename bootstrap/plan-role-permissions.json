@@ -26,7 +26,11 @@
         "lightsail:GetOperationsForResource"
       ],
       "Resource": "*",
-      "Condition": { "StringEquals": { "aws:RequestedRegion": "__REGION__" } }
+      "Condition": {
+        "StringEquals": {
+          "aws:RequestedRegion": "__REGION__"
+        }
+      }
     },
     {
       "Sid": "StateBucketList",
@@ -43,7 +47,10 @@
     {
       "Sid": "BackupBucketConfigReadNoObjects",
       "Effect": "Allow",
-      "Action": ["s3:Get*", "s3:ListBucket"],
+      "Action": [
+        "s3:Get*",
+        "s3:ListBucket"
+      ],
       "Resource": "arn:aws:s3:::interview-prep-backups-__ACCOUNT_ID__"
     },
     {
@@ -59,6 +66,20 @@
         "iam:ListAccessKeys"
       ],
       "Resource": "arn:aws:iam::__ACCOUNT_ID__:user/interview-prep/*"
+    },
+    {
+      "Sid": "EcrRepositoriesReadOnly",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:DescribeRepositories",
+        "ecr:ListTagsForResource",
+        "ecr:GetLifecyclePolicy",
+        "ecr:GetRepositoryPolicy"
+      ],
+      "Resource": [
+        "arn:aws:ecr:__REGION__:__ACCOUNT_ID__:repository/interview-prep-app",
+        "arn:aws:ecr:__REGION__:__ACCOUNT_ID__:repository/interview-prep-content"
+      ]
     },
     {
       "Sid": "WhoAmI",

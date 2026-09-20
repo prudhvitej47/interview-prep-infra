@@ -24,8 +24,17 @@ set -euo pipefail
 REGION="${REGION:-ap-south-1}"
 GITHUB_OWNER="${GITHUB_OWNER:-prudhvitej47}"
 INFRA_REPO="${INFRA_REPO:-interview-prep-infra}"
+APP_REPO="${APP_REPO:-interview-prep-app}"
+CONTENT_REPO="${CONTENT_REPO:-interview-prep-content}"
+
+# interview-prep-content is private, so api.github.com cannot be read anonymously from CloudShell.
+# Its numeric id is immutable and not secret, so it is recorded here and can still be overridden.
+# If the repo is ever deleted and re-created this must be updated, and the push role will fail to
+# be assumed until it is — which is the protection the numeric-id form is there to provide.
+CONTENT_REPO_ID_DEFAULT="${CONTENT_REPO_ID_DEFAULT:-1376725108}"
 PLAN_ROLE="${PLAN_ROLE:-interview-prep-terraform-plan}"
 APPLY_ROLE="${APPLY_ROLE:-interview-prep-terraform-apply}"
+PUSH_ROLE="${PUSH_ROLE:-interview-prep-ecr-push}"
 OIDC_HOST="token.actions.githubusercontent.com"
 # GitHub's published thumbprints. IAM no longer relies on them for GitHub, but the
 # CreateOpenIDConnectProvider API still accepts them, so we pass them for older CLIs.
@@ -49,15 +58,40 @@ REPO_SLUG="${GITHUB_OWNER}/${INFRA_REPO}"
 # GitHub puts numeric ids in the OIDC token subject of repos created after 15 July 2026:
 #   repo:<owner>@<owner-id>/<repo>@<repo-id>:ref:refs/heads/main
 # The ids never change, so a renamed or re-created repo cannot reuse these roles.
-# They are read from GitHub's public API; for a private repo pass GITHUB_OWNER_ID and GITHUB_REPO_ID.
-if [[ -z "${GITHUB_OWNER_ID:-}" || -z "${GITHUB_REPO_ID:-}" ]]; then
-  REPO_JSON="$(curl -fsS "https://api.github.com/repos/${REPO_SLUG}")" \
-    || die "could not read ${REPO_SLUG} from api.github.com (private repo? set GITHUB_OWNER_ID and GITHUB_REPO_ID)"
-  GITHUB_OWNER_ID="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["owner"]["id"])' <<<"${REPO_JSON}")"
-  GITHUB_REPO_ID="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])' <<<"${REPO_JSON}")"
+
+# repo_id <repo-name> [fallback-id]
+# Prints the repository's numeric id, reading it from GitHub's public API. A private repo cannot
+# be read anonymously, so a fallback may be supplied; without one this is fatal, because guessing
+# would produce a role that silently trusts nothing.
+repo_id() {
+  local repo="$1" fallback="${2:-}" json id
+  if json="$(curl -fsS "https://api.github.com/repos/${GITHUB_OWNER}/${repo}" 2>/dev/null)"; then
+    id="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])' <<<"${json}")"
+  elif [[ -n "${fallback}" ]]; then
+    printf 'note: %s is not readable anonymously; using its recorded id %s\n' \
+      "${repo}" "${fallback}" >&2
+    id="${fallback}"
+  else
+    die "could not read ${GITHUB_OWNER}/${repo} from api.github.com and no id was supplied"
+  fi
+  [[ "${id}" =~ ^[0-9]+$ ]] || die "repository id for ${repo} is not a number: ${id}"
+  printf '%s' "${id}"
+}
+
+if [[ -z "${GITHUB_OWNER_ID:-}" ]]; then
+  OWNER_JSON="$(curl -fsS "https://api.github.com/users/${GITHUB_OWNER}")" \
+    || die "could not read owner ${GITHUB_OWNER} from api.github.com (set GITHUB_OWNER_ID)"
+  GITHUB_OWNER_ID="$(python3 -c 'import json, sys; print(json.load(sys.stdin)["id"])' <<<"${OWNER_JSON}")"
 fi
-[[ "${GITHUB_OWNER_ID}" =~ ^[0-9]+$ && "${GITHUB_REPO_ID}" =~ ^[0-9]+$ ]] || die "GitHub owner and repo ids must be numbers"
+[[ "${GITHUB_OWNER_ID}" =~ ^[0-9]+$ ]] || die "GitHub owner id must be a number"
+
+GITHUB_REPO_ID="${GITHUB_REPO_ID:-$(repo_id "${INFRA_REPO}")}"
+APP_REPO_ID="${APP_REPO_ID:-$(repo_id "${APP_REPO}")}"
+CONTENT_REPO_ID="${CONTENT_REPO_ID:-$(repo_id "${CONTENT_REPO}" "${CONTENT_REPO_ID_DEFAULT}")}"
+
 TOKEN_SUBJECT="repo:${GITHUB_OWNER}@${GITHUB_OWNER_ID}/${INFRA_REPO}@${GITHUB_REPO_ID}"
+APP_TOKEN_SUBJECT="repo:${GITHUB_OWNER}@${GITHUB_OWNER_ID}/${APP_REPO}@${APP_REPO_ID}"
+CONTENT_TOKEN_SUBJECT="repo:${GITHUB_OWNER}@${GITHUB_OWNER_ID}/${CONTENT_REPO}@${CONTENT_REPO_ID}"
 
 cat <<EOF
 
@@ -69,7 +103,8 @@ About to bootstrap:
   Token subject   : ${TOKEN_SUBJECT}:...
   State bucket    : ${STATE_BUCKET}
   Plan role       : ${PLAN_ROLE}   (any branch or PR of ${REPO_SLUG}, read-only)
-  Apply role      : ${APPLY_ROLE}  (only the main branch of ${REPO_SLUG})
+  Apply role      : ${APPLY_ROLE}  (main branch or apply environment of ${REPO_SLUG})
+  Push role       : ${PUSH_ROLE}   (main branch of ${APP_REPO} and ${CONTENT_REPO})
 EOF
 
 if [[ "${1:-}" != "--yes" ]]; then
@@ -84,12 +119,14 @@ render() {
       -e "s|__REGION__|${REGION}|g" \
       -e "s|__REPO_SLUG__|${REPO_SLUG}|g" \
       -e "s|__TOKEN_SUBJECT__|${TOKEN_SUBJECT}|g" \
+      -e "s|__APP_TOKEN_SUBJECT__|${APP_TOKEN_SUBJECT}|g" \
+      -e "s|__CONTENT_TOKEN_SUBJECT__|${CONTENT_TOKEN_SUBJECT}|g" \
       -e "s|__STATE_BUCKET__|${STATE_BUCKET}|g" \
       "${SCRIPT_DIR}/${template}" > "${WORK_DIR}/${out}"
 }
 
 # ---------------------------------------------------------------------------
-log "1/5 Terraform state bucket: ${STATE_BUCKET}"
+log "1/6 Terraform state bucket: ${STATE_BUCKET}"
 if aws s3api head-bucket --bucket "${STATE_BUCKET}" 2>/dev/null; then
   echo "exists"
 else
@@ -115,7 +152,7 @@ aws s3api put-bucket-policy --bucket "${STATE_BUCKET}" \
 echo "private, versioned, encrypted, TLS-only"
 
 # ---------------------------------------------------------------------------
-log "2/5 GitHub OIDC identity provider"
+log "2/6 GitHub OIDC identity provider"
 if aws iam get-open-id-connect-provider --open-id-connect-provider-arn "${OIDC_ARN}" >/dev/null 2>&1; then
   echo "exists"
   if ! aws iam get-open-id-connect-provider --open-id-connect-provider-arn "${OIDC_ARN}" \
@@ -156,16 +193,20 @@ upsert_role() {
   echo "permissions policy set"
 }
 
-log "3/5 Plan role: ${PLAN_ROLE}"
+log "3/6 Plan role: ${PLAN_ROLE}"
 upsert_role "${PLAN_ROLE}" plan-role-trust.json plan-role-permissions.json \
   "Read-only terraform plan for ${REPO_SLUG} (GitHub Actions OIDC)"
 
-log "4/5 Apply role: ${APPLY_ROLE}"
+log "4/6 Apply role: ${APPLY_ROLE}"
 upsert_role "${APPLY_ROLE}" apply-role-trust.json apply-role-permissions.json \
   "terraform apply for ${REPO_SLUG}, main branch only (GitHub Actions OIDC)"
 
+log "5/6 Push role: ${PUSH_ROLE}"
+upsert_role "${PUSH_ROLE}" push-role-trust.json push-role-permissions.json \
+  "Push container images to ECR from ${APP_REPO} and ${CONTENT_REPO}, main branch only"
+
 # ---------------------------------------------------------------------------
-log "5/5 Lightsail plans with 2 GB RAM in ${REGION} (confirm the \$12 bundle id)"
+log "6/6 Lightsail plans with 2 GB RAM in ${REGION} (confirm the \$12 bundle id)"
 # JMESPath literals use backticks, which must not expand.
 # shellcheck disable=SC2016
 aws lightsail get-bundles --region "${REGION}" \
@@ -181,6 +222,13 @@ Done. Now add these as repository VARIABLES (not secrets) in GitHub:
   TF_STATE_BUCKET       = ${STATE_BUCKET}
   AWS_PLAN_ROLE_ARN     = arn:aws:iam::${ACCOUNT_ID}:role/${PLAN_ROLE}
   AWS_APPLY_ROLE_ARN    = arn:aws:iam::${ACCOUNT_ID}:role/${APPLY_ROLE}
+
+and these as repository VARIABLES in BOTH ${APP_REPO} and ${CONTENT_REPO}, so their
+workflows can publish images:
+
+  AWS_REGION            = ${REGION}
+  AWS_ECR_PUSH_ROLE_ARN = arn:aws:iam::${ACCOUNT_ID}:role/${PUSH_ROLE}
+  ECR_REGISTRY          = ${ACCOUNT_ID}.dkr.ecr.${REGION}.amazonaws.com
 
 and this repository SECRET (Settings -> Secrets and variables -> Actions -> Secrets):
 

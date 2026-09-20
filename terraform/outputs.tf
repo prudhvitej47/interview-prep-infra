@@ -27,3 +27,13 @@ output "backup_writer_user" {
   description = "IAM user the VM uses to write backups (key delivered at first boot)."
   value       = aws_iam_user.backup_writer.name
 }
+
+output "ecr_registry" {
+  description = "Registry host for docker login and image references."
+  value       = split("/", aws_ecr_repository.this["app"].repository_url)[0]
+}
+
+output "ecr_repository_urls" {
+  description = "Image repositories the app and content workflows push to."
+  value       = { for k, r in aws_ecr_repository.this : k => r.repository_url }
+}
